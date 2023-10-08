@@ -27,7 +27,7 @@ local EVP_CIPH_FLAG_DEFAULT_ASN1 = 0x1000
 local SMS4_WRAP_FLAGS = bor(EVP_CIPH_WRAP_MODE, EVP_CIPH_CTRL_INIT,
         EVP_CIPH_CUSTOM_IV, EVP_CIPH_FLAG_CUSTOM_CIPHER,
         EVP_CIPH_ALWAYS_CALL_INIT, EVP_CIPH_FLAG_DEFAULT_ASN1)
-local strcover = require "resty.cover.strcover"
+
 local str = require "resty.string"
 
 local BLOCK_BYTE = 16
@@ -323,6 +323,31 @@ local function sms4_ctrl(ctx, type, arg, ptr)
     return 1
 end
 
+local function bin2arr(s)
+    local t = {}
+    for i = 1, string.len(s) do
+        table.insert(t, string.byte(string.sub(s, i, i)))
+    end
+    return t
+end
+
+local function padding(s)
+    local p_num = BLOCK_BYTE - (string.len(s) % BLOCK_BYTE)
+    local pad_s = string.rep(string.char(p_num), p_num)
+    return s .. pad_s
+end
+
+local function unpadding(s)
+    local p_num = string.byte(s, -1) + 1
+    return string.sub(s, 1, -p_num)
+end
+
+local function hex2bin(hex_str)
+    return (hex_str:gsub('..', function(cc)
+        return string.char(tonumber(cc, 16))
+    end))
+end
+
 function _M.cipher(_cipher)
     local cipher = ffi_new("EVP_CIPHER[1]")
     cipher[0].nid = 1161
@@ -344,18 +369,18 @@ function _M.cipher(_cipher)
 end
 
 function _M.new(self, key)
-    key = strcover.bin2arr(key)
+    key = bin2arr(key)
     local rk = SMS4_Init(ffi_new("const unsigned char[16]", key))
     return setmetatable({ rk = rk }, mt)
 end
 
 function _M.encrypt(self, text)
-    text = strcover.padding(text)
+    text = padding(text)
     local n, tmp = math.modf(string.len(text) / BLOCK_BYTE)
     local data = {}
     for j = 1, n do
         local block = string.sub(text, (j - 1) * BLOCK_BYTE + 1, j * BLOCK_BYTE)
-        block = strcover.bin2arr(block)
+        block = bin2arr(block)
         local _in = ffi_new("const unsigned char[16]", block)
         local _out = ffi_new("unsigned char[16]")
 
@@ -367,23 +392,23 @@ function _M.encrypt(self, text)
 end
 
 function _M.decrypt(self, text)
-    text = strcover.hex2bin(text)
+    text = hex2bin(text)
     local n, tmp = math.modf(string.len(text) / BLOCK_BYTE)
     local data = {}
     for j = 1, n do
         local block = string.sub(text, (j - 1) * BLOCK_BYTE + 1, j * BLOCK_BYTE)
-        block = strcover.bin2arr(block)
+        block = bin2arr(block)
         local _in = ffi_new("const unsigned char[16]", block)
         local _out = ffi_new("unsigned char[16]")
 
         local sm4str = SMS4_Update_block(self.rk, _in, _out, false)
-        table.insert(data, strcover.hex2bin(sm4str))
+        table.insert(data, hex2bin(sm4str))
         --for i = 1, 16 do
         --    table.insert(data, string.char(sm4str, i))
         --    --table.insert(data, string.sub(ffi_str(_out), i, i))
         --end
     end
-    return strcover.unpadding(table.concat(data, ""))
+    return unpadding(table.concat(data, ""))
 end
 
 return _M
