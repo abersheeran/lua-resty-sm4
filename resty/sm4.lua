@@ -369,7 +369,7 @@ function _M.cipher(_cipher)
 end
 
 function _M.new(self, key)
-    key = bin2arr(key)
+    key = bin2arr(hex2bin(key))
     local rk = SMS4_Init(ffi_new("const unsigned char[16]", key))
     return setmetatable({ rk = rk }, mt)
 end
